@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Парсер расписания</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+      background: linear-gradient(135deg, #f9f9fb, #eef1f5);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      background: #fff;
+      margin: 20px;
+      padding: 20px;
+      border-radius: 16px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.1);
+    }
+    h2 {
+      text-align: center;
+      margin-top: 0;
+      font-size: 1.5rem;
+      color: #333;
+    }
+    textarea {
+      width: 100%;
+      min-height: 160px;
+      padding: 12px;
+      font-size: 15px;
+      border-radius: 12px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+      resize: vertical;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .row > * { flex: 1; }
+    button {
+      padding: 10px 14px;
+      font-size: 15px;
+      border-radius: 12px;
+      border: none;
+      background: #4a90e2;
+      color: #fff;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #357abf; }
+    button:active { background: #2c5f95; }
+    pre {
+      background: #f4f6f9;
+      padding: 12px;
+      border-radius: 12px;
+      white-space: pre-wrap;
+      margin-top: 12px;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    label {
+      font-weight: 600;
+      display: block;
+      margin-bottom: 6px;
+      margin-top: 12px;
+    }
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Парсер расписания</h2>
+    <label>Входные данные</label>
+    <textarea id="inputArea">Liza:
+Скан
+12:30-13:00
+16:30-17:15
+19:30-20:00
+
+Светик:
+Вэлком
+13:00-13:30
+17:00-17:30
+20:00-20:45
+
+Саня:
+Саша М. Двери
+14:00-15:00
+18:00-18:45
+
+полинка:
+скан
+13:30-14:00
+17:30-18:00
+20:45-21:00</textarea>
+
+    <div class="row">
+      <input type="file" id="fileInput" accept=".txt" />
+      <button id="parseBtn">Парсить →</button>
+    </div>
+
+    <label>Вывод</label>
+    <div class="actions">
+      <button id="copyBtn">Копировать</button>
+      <button id="downloadBtn">Скачать .txt</button>
+    </div>
+    <pre id="outputArea"></pre>
+  </div>
+
+  <script>
+    const input = document.getElementById('inputArea');
+    const output = document.getElementById('outputArea');
+    const parseBtn = document.getElementById('parseBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const dlBtn = document.getElementById('downloadBtn');
+    const fileInput = document.getElementById('fileInput');
+
+    fileInput.addEventListener('change', e => {
+      const f = e.target.files[0];
+      if(!f) return;
+      const r = new FileReader();
+      r.onload = () => { input.value = r.result; };
+      r.readAsText(f, 'utf-8');
+    });
+
+    function isTimeToken(s){
+      return /^(?:[01]?\d|2[0-3]):[0-5]\d-(?:[01]?\d|2[0-3]):[0-5]\d$/.test(s.trim());
+    }
+
+    function parse(text){
+      const blocks = text.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+      const res = [];
+      for(const b of blocks){
+        const lines = b.split(/\n/).map(l => l.trim()).filter(Boolean);
+        if(lines.length===0) continue;
+        let name = lines[0].replace(/:$/,'').trim();
+        let note = '';
+        let times = [];
+        const rest = lines.slice(1);
+        if(rest.length>0 && !isTimeToken(rest[0].split(/[,;\s]+/)[0])){
+          note = rest[0];
+          times = rest.slice(1).flatMap(l => l.split(/[,;]+/).map(t=>t.trim()).filter(Boolean));
+        } else {
+          times = rest.flatMap(l => l.split(/[,;]+/).map(t=>t.trim()).filter(Boolean));
+        }
+        times = times.filter(t => isTimeToken(t));
+        if(times.length===0){
+          const all = b.split(/\s+/).map(tok=>tok.trim()).filter(Boolean);
+          times = all.filter(tok => isTimeToken(tok));
+        }
+        res.push({name, note, times});
+      }
+      return res.map(item => {
+        const person = `👤 ${item.name}`;
+        const notePart = item.note ? ` (${item.note})` : '';
+        return item.times.length===0
+          ? `${person}${notePart}: нет перерывов`
+          : `${person}${notePart}: ${item.times.join(', ')}`;
+      }).join('\n');
+    }
+
+    parseBtn.addEventListener('click', ()=>{
+      try{
+        const out = parse(input.value);
+        output.textContent = out || 'Выход пуст — проверьте входные данные.';
+      }catch(e){
+        output.textContent = 'Ошибка парсинга: '+e.message;
+      }
+    });
+
+    copyBtn.addEventListener('click', async () => {
+      const text = output.textContent;
+      if (!text) return;
+
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(text);
+          copyBtn.textContent = 'Скопировано!';
+          setTimeout(() => copyBtn.textContent = 'Копировать', 1200);
+          return;
+        } catch (e) {
+          console.warn('Clipboard API error:', e);
+        }
+      }
+
+      // Фолбэк для file://
+      const temp = document.createElement('textarea');
+      temp.value = text;
+      document.body.appendChild(temp);
+      temp.select();
+      try {
+        document.execCommand('copy');
+        copyBtn.textContent = 'Скопировано!';
+      } catch (err) {
+        alert('Не удалось скопировать. Скопируйте вручную.');
+      }
+      document.body.removeChild(temp);
+      setTimeout(() => copyBtn.textContent = 'Копировать', 1200);
+    });
+
+    dlBtn.addEventListener('click', ()=>{
+      const blob = new Blob([output.textContent || ''],'text/plain;charset=utf-8');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'schedule_parsed.txt';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    parseBtn.click();
+  </script>
+</body>
+</html>
